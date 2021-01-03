@@ -6,23 +6,43 @@
 //	huidong <mailkey@yeah.net>
 //
 //	创建时间：2020.11.27
-//	最后修改：2020.12.26
+//	最后修改：2021.1.3
 //
 
 #include <easyx.h>
 #include <time.h>
 #include <math.h>
 #include <conio.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #define KEY_DOWN(VK_NONAME) ((GetAsyncKeyState(VK_NONAME) & 0x8000) ? 1:0)
 #define RandNum(min, max)	(rand() % (max - min + 1) + min)
 
+// 时间计算（仅debug状态下有效）
+#ifdef _DEBUG
+
+double dfq;
+LARGE_INTEGER fq, t_begin, t_end;
+#define TIMEC_INIT    {QueryPerformanceFrequency(&fq);dfq=1.0/fq.QuadPart;}
+#define TIMEC_BEGIN    QueryPerformanceCounter(&t_begin);
+#define TIMEC_END    {QueryPerformanceCounter(&t_end);printf("%lf\n",(t_end.QuadPart-t_begin.QuadPart)*dfq);}
+
+#else
+
+#define TIMEC_INIT
+#define TIMEC_BEGIN
+#define TIMEC_END
+
+#endif // _DEBUG
+
+
+
 #define WINDOW_WIDTH 640
 #define WINDOW_HEIGHT 480
 
 // 方块数
-const int m_nBlocksNum = 512;
+const int m_nBlocksNum = 500;
 
 // 背景色
 COLORREF m_colorBk = RGB(0, 162, 232);
@@ -32,7 +52,7 @@ int m_nMinInterval = 50;
 int m_nMaxInterval = 400;
 
 // 方块宽度极值
-int m_nMinBlockSize = 20;
+int m_nMinBlockSize = 40;
 int m_nMaxBlockSize = 100;
 
 // 方块顶部和底部
@@ -114,7 +134,13 @@ void HpSleep(int ms)
 
 void init_graph()
 {
+#ifdef _DEBUG
+	initgraph(WINDOW_WIDTH, WINDOW_HEIGHT, EW_SHOWCONSOLE);
+#else
 	initgraph(WINDOW_WIDTH, WINDOW_HEIGHT);
+#endif
+	
+	TIMEC_INIT
 	setbkcolor(m_colorBk);
 	setbkmode(TRANSPARENT);
 	cleardevice();
@@ -215,22 +241,23 @@ void init_game(Player* player)
 	player->fPlayerY = (float) m_nBlockTop;
 }
 
-void draw(Player* player)
+void draw_player(Player* player)
 {
-	cleardevice();
-
-	// 背景画布
-	putimage(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, player->imgBk, player->nImgOffsetX, 0);
-
 	// 画小人
 	setlinecolor(BLACK);
 	setfillcolor(BLUE);
 	fillrectangle(
 		(int)player->fPlayerX - player->nImgOffsetX,			// 由于需要画布偏移，小人的位置要和画布位置对应，所以需要减去画布偏移量
-		(int)player->fPlayerY - (int)player->fPlayerSize,	// 坐标是方块左下角坐标，所以需要计算出方块左上角坐标
+		(int)player->fPlayerY - (int)player->fPlayerSize,		// 坐标是方块左下角坐标，所以需要计算出方块左上角坐标
 		((int)player->fPlayerX - player->nImgOffsetX) + m_nMaxPlayerSize,	// 右侧x坐标是左侧x坐标加上玩家宽度
-		(int)player->fPlayerY							// 坐标是方块左下角坐标，所以底部y坐标直接用
+		(int)player->fPlayerY									// 坐标是方块左下角坐标，所以底部y坐标直接用
 	);
+}
+
+void draw_bk(Player* player)
+{
+	// 背景画布
+	putimage(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, player->imgBk, player->nImgOffsetX, 0);
 
 	// 画分数
 	wchar_t strSocre[12] = { 0 };
@@ -239,6 +266,17 @@ void draw(Player* player)
 	settextcolor(WHITE);
 	settextstyle(32, 0, L"system");
 	outtextxy(30, 30, strSocre);
+}
+
+void draw(Player* player)
+{
+	cleardevice();
+
+	// 画背景
+	draw_bk(player);
+
+	// 画小人
+	draw_player(player);
 
 	FlushBatchDraw();
 }
@@ -294,11 +332,19 @@ void user_input(Player* player)
 		player->bEnter = false;
 		player->bJump = true;
 	}
+
+	else
+	{
+		Sleep(1);
+	}
 }
 
 void game_run(Player* player)
 {
+	printf("基础绘制：");
+	TIMEC_BEGIN
 	draw(player);
+	TIMEC_END
 
 	// 跳起
 	if (player->bJump)
@@ -319,49 +365,64 @@ void game_run(Player* player)
 		float fLockX = 0;
 
 		// y坐标误差判定长度，即y坐标在多大的范围内仍然进行判定
-		int nOffsetY = 10;
+		int nOffsetY = 1;
 
 		// 玩家碰到物体外壁时，玩家和物体的x坐标差最大值
 		int nOffsetHitX = 3;
 
-		// 跳跃
-		for (; ; player->fPlayerX++)
+		// 重力
+		float fG = (y - player->fPlayerY) / 3;
+
+		// 根据时间动态设置跳跃长度，实现fps稳定
+		clock_t cTime = clock();
+
+		// 跳跃的同时恢复身高
+		for (; player->fPlayerSize < m_nMaxPlayerSize;)
 		{
-			// 跳跃的同时恢复身高
-			if (player->fPlayerSize < m_nMaxPlayerSize)
-			{
-				player->fPlayerSize += (float)0.2;
-			}
+			cTime = clock();
+			player->fPlayerSize += (float)((clock() - cTime) * 0.5 + 0.3);
+			draw_player(player);	// 人物只会越变越大，故只重绘人物
+			FlushBatchDraw();
+		}
+
+		// 跳跃
+		for (; ; player->fPlayerX += (float)((clock() - cTime) * 0.3 + 1))
+		{
+			cTime = clock();
 
 			/* 若x坐标在锁定状态下 */
 			if (bLockX)
 			{
 				player->fPlayerX = fLockX;
-				player->fPlayerY += (float)0.1;	/* y保持下降 */
+				player->fPlayerY += (float)((clock() - cTime) * 0.4 + 0.2);	/* y保持下降 */
 			}
 			else
 			{
+				printf("跳跃曲线计算：");
+				TIMEC_BEGIN
+
+					// 重力增加
+					fG += (float)((clock() - cTime) * 0.2 + 0.2 + (y - player->fPlayerY) / 300.0);
+
 				// 跳跃曲线计算
-				player->fPlayerY = 
+				player->fPlayerY =
 					(float)jump_func(
 						x,									// 二次函数中和x轴交界的左侧点x坐标
 						y,									// 二次函数中和x轴交界的左侧点y坐标
 						x + player->fJumpDistance / 2,		// 二次函数中顶点x坐标（和x轴交界的两个点之间的线段的一半）
 						y - player->fJumpDistance / 3,		// 二次函数中顶点y坐标（取x轴交界的两个点之间的线段的1/3作为跳跃高度）
 						player->fPlayerX)					// 返回x坐标对应的y坐标
-					+ (y - player->fPlayerY) / 4;			// 重力加速度
+					+ fG;	// 重力加速度
+				TIMEC_END
 			}
 
 			// y变高了，标记下已经跳出
 			if (player->fPlayerY < y)
 				bJumped = true;
 
-			// 绘制
-			draw(player);
-			HpSleep(1);
-
+			// 判断小人落地
 			// 已经跳出且下落到原来的y点
-			if (player->fPlayerY >= y && bJumped)
+			if (player->fPlayerY >= y && bJumped && !bLockX /* 不在下滑过程中 */ )
 			{
 				// 判断是否跳跃到了点上
 				for (int i = player->nStandBlockNum; i < m_nBlocksNum; i++)
@@ -371,12 +432,13 @@ void game_run(Player* player)
 						player->fPlayerX < player->rctBlocks[i].right) ||							// 身体左边判定
 						(player->fPlayerX + m_nMaxPlayerSize > player->rctBlocks[i].left &&
 							player->fPlayerX + m_nMaxPlayerSize < player->rctBlocks[i].right)) &&	// 身体右边判定
-						player->fPlayerY - y <= nOffsetY)	// y坐标下降到一定高度
+						y - player->fPlayerY <= nOffsetY /* y坐标下降到一定高度 */)
 					{
 						// 站稳且不在原方块上，加分
 						if (i != player->nStandBlockNum)
 						{
-							player->nScore++;
+							// 跨过几个方块加几分
+							player->nScore += i - player->nStandBlockNum;
 							player->nStandBlockNum = i;
 						}
 
@@ -395,6 +457,7 @@ void game_run(Player* player)
 						player->fPlayerX = fLockX;
 						draw(player);
 						Sleep(150);
+						break;
 					}
 				}
 			}
@@ -406,20 +469,34 @@ void game_run(Player* player)
 				init_game(player);
 				return;
 			}
+
+			printf("跳跃中背景绘制：");
+			TIMEC_BEGIN
+			// 绘制
+			draw(player);
+			TIMEC_END
+
+			// 动态延时
+			HpSleep((int)((clock() - cTime) * 1.1 + 1));
 		}
 	out:
-		// y坐标复原
+		// 由于float的小数误差，将y坐标复原
 		player->fPlayerY = (float) y;
 
 		// 跳跃长度清零
 		player->fJumpDistance = 0;
 
+		// y坐标复原后应绘制一遍
+		draw(player);
 		Sleep(100);
 
 		// 画面移动
 		for (; player->nImgOffsetX <= player->fPlayerX - 20; player->nImgOffsetX++)
 		{
 			draw(player);
+
+			// 根据玩家跳跃的长度动态设置画面移动速度
+			HpSleep((int)(1 / (player->fPlayerX - x) + 1));
 		}
 	}
 
@@ -440,7 +517,7 @@ void startmenu(Player* player)
 
 	Sleep(100);
 	settextstyle(16, 0, L"system");
-	outtextxy(230, 220, L"made by huidong 2020.12.26");
+	outtextxy(230, 220, L"made by huidong 2021.1.3");
 	FlushBatchDraw();
 
 	Sleep(800);
