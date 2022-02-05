@@ -1,4 +1,7 @@
 # JumpAndJump
+![License](https://img.shields.io/github/license/zouhuidong/JumpAndJump)
+![Downloads](https://img.shields.io/github/downloads/zouhuidong/JumpAndJump/total)
+![GitHub Version](https://img.shields.io/github/v/release/zouhuidong/JumpAndJump)
 A game imitates WeChat's mini game "Jump and jump". 模拟微信小游戏跳一跳（2D版）
 
 ## 编译环境
